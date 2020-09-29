@@ -32,7 +32,6 @@ module Sidekiq
       else
         params
       end
-      puts 'set', key(redis_params)
       self.class.config.redis.set(key(redis_params), now + @delay)
 
       # Schedule the job with not only debounce delay added, but also BUFFER.
