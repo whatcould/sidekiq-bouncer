@@ -17,13 +17,9 @@ top gems from Googling 'sidekiq debounce', but all were too slow or broken.
      enqueuing a new job. V6 introduced `scan` for this purpose, and it is
      1.5x faster than V5's `select` method, but still too slow at high volume.
 
-  2) https://github.com/hummingbird-me/sidekiq-debounce
+  2) https://github.com/paladinsoftware/sidekiq-debouncer
 
-     The 1st search result. It is outdated and does not work anymore.
-
-  3) https://github.com/paladinsoftware/sidekiq-debouncer
-
-     The 2nd search result. Still works, but it uses the slow `select` method.
+     Still works, but it uses the slow `select` method.
 
 ## Performance
 
@@ -63,23 +59,19 @@ class FooWorker
 
   def self.bouncer
     # The default delay is 60 seconds. You can optionally override it.
-    @bouncer ||= Sidekiq::Bouncer.new(self, optional_delay_override)
+    @bouncer ||= Sidekiq::Bouncer.new(self, delay: optional_delay_override, delay_buffer: optional_delay_buffer_override)
   end
 
   def perform(param1, param2)
-    return unless self.class.bouncer.let_in?(param1, param2)
+    return unless self.class.bouncer.let_in?(param1, param2) #pass all args received from perform
 
     # Do your thing.
   end
 end
 
-# Call `.bouncer.debounce(...)` in place of `.perform_in/perform_async(...)`.
+# Call `.bouncer.debounce(...)` instead of `.perform_in/perform_async(...)`.
 FooWorker.bouncer.debounce(param1, param2)
 ```
-
-# About Apartment List
-
-The majority of Americans spend two thirds of their time at home, yet they find searching for their home to be a huge hassle. Our engineering team is dedicated to solving this problem for millions of renters by disrupting the rental process. Each team is impactful and high-leverage, making the entire engineering organization more productive. Our backend is powered by Ruby, PostgreSQL, Elasticsearch, Kinesis, Go and AMQP, and we are excited to hire the best and brightest engineering talent to join us with new ideas, innovative approaches, and fresh perspectives. Check out our career page for open roles - https://www.apartmentlist.com/about/careers
 
 ## Development
 

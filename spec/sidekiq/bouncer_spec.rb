@@ -1,70 +1,129 @@
+# Mock
 module RedisMock
 end
 
+# Mock
 class WorkerMock
   def self.bouncer
-    @bouncer ||= Sidekiq::Bouncer.new(self)
+    Sidekiq::Bouncer.new(self)
   end
 end
 
-RSpec.describe Sidekiq::Bouncer do
-  let(:redis) { RedisMock }
-  let(:klass) { WorkerMock }
-  let(:param1) { 1 }
-  let(:param2) { 2 }
-  let(:key) { "#{klass}:#{param1},#{param2}" }
-  let(:now) { 100 }
+# Tests
+describe Sidekiq::Bouncer do
 
-  subject { WorkerMock.bouncer }
-
-  before do
+  before(:all) do
     described_class.configure do |config|
       config.redis = RedisMock
     end
   end
 
-  describe '#debounce' do
-    before do
-      allow(subject).to receive(:now).and_return(now)
-      allow(redis).to receive(:set)
-      allow(klass).to receive(:perform_at)
+  let(:redis) { RedisMock }
+  let(:worker_klass) { WorkerMock }
+  let(:now) { 100 }
+
+  before do
+    # stubbing
+    allow(subject).to receive(:now_i){ now }
+    allow(redis).to receive(:set)
+    allow(redis).to receive(:get)
+    allow(redis).to receive(:del)
+    allow(worker_klass).to receive(:perform_at)
+  end
+
+  # careful, the bouncer instance is generally cached on the worker model
+  subject { WorkerMock.bouncer }
+
+  describe '.new' do
+
+    it 'raises an error when no worker class is passed' do
+      expect { Sidekiq::Bouncer.new() }.to raise_error(ArgumentError)
     end
 
-    it 'sets Redis with delayed timestamp' do
-      subject.debounce(param1, param2)
+    it 'raises an error when first argument is not a worker class' do
+      expect { Sidekiq::Bouncer.new(1) }.to raise_error(TypeError)
+    end
+
+    it 'has a default value for delay and delay_buffer' do
+      expect(subject.delay).to eql(Sidekiq::Bouncer::DELAY)
+      expect(subject.delay_buffer).to eql(Sidekiq::Bouncer::DELAY_BUFFER)
+      expect(subject.only_params_at_index).to eql([])
+    end
+
+    it 'supports passing delay, delay_buffer and only_params_at_index params' do
+      bouncer = Sidekiq::Bouncer.new(WorkerMock, delay: 10, delay_buffer: 2, only_params_at_index: [1])
+      expect(bouncer.delay).to eql(10)
+      expect(bouncer.delay_buffer).to eql(2)
+      expect(bouncer.only_params_at_index).to eql([1])
+    end
+
+  end
+
+  describe '#debounce' do
+
+    it 'sets delayed timestamp to Redis and calls perform_at with additional delay_buffer' do
+      subject.debounce('test_param_1', 'test_param_2')
 
       expect(subject.class.config.redis)
         .to have_received(:set)
-        .with(key, now + described_class::DEFAULT_DELAY)
-    end
+        .with("#{worker_klass}:test_param_1,test_param_2", now + subject.delay)
 
-    it 'queues Sidekiq with delayed and buffered timestamp' do
-      subject.debounce(param1, param2)
-
-      expect(klass)
+      expect(worker_klass)
         .to have_received(:perform_at)
-        .with(
-          now + described_class::DEFAULT_DELAY + described_class::BUFFER,
-          param1,
-          param2
-        )
+        .with(now + subject.delay + subject.delay_buffer, 'test_param_1', 'test_param_2')
     end
+
+    it 'supports filtering params with @only_params_at_index' do
+      subject.only_params_at_index = [1]
+
+      subject.debounce('test_param_1', 'test_param_2')
+
+      expect(subject.class.config.redis)
+        .to have_received(:set)
+        .with("#{worker_klass}:test_param_2", now + subject.delay)
+
+      expect(worker_klass)
+        .to have_received(:perform_at)
+        .with(now + subject.delay + subject.delay_buffer, 'test_param_1', 'test_param_2')
+    end
+
   end
 
   describe '#let_in?' do
+
+    it 'Redis receives params for #get' do
+      subject.let_in?('test_param_1', 'test_param_2')
+
+      expect(subject.class.config.redis)
+        .to have_received(:get)
+        .with("#{worker_klass}:test_param_1,test_param_2")
+    end
+
+    it 'supports filtering Redis params for #get' do
+      subject.only_params_at_index = [1]
+      subject.let_in?('test_param_1', 'test_param_2')
+
+      expect(subject.class.config.redis)
+        .to have_received(:get)
+        .with("#{worker_klass}:test_param_2")
+    end
+
     context 'when debounce timestamp is in the past' do
       before do
-        allow(redis).to receive(:get).and_return(Time.now - 10)
+        allow(redis).to receive(:get).and_return(now - 10)
         allow(redis).to receive(:del)
       end
 
-      it 'returns true' do
-        expect(subject.let_in?(param1, param2)).to eq(true)
+      it 'Redis receives params for #get and #del' do
+        subject.let_in?('test_param_1', 'test_param_2')
+  
+        expect(subject.class.config.redis)
+          .to have_received(:del)
+          .with("#{worker_klass}:test_param_1,test_param_2")
       end
 
-      it 'deletes debounce timestamp from redis' do
-        subject.let_in?(param1, param2)
-        expect(subject.class.config.redis).to have_received(:del).with(key)
+      it 'returns true' do
+        expect(subject.let_in?()).to eq(true)
       end
     end
 
@@ -73,8 +132,10 @@ RSpec.describe Sidekiq::Bouncer do
         allow(redis).to receive(:get).and_return(Time.now + 10)
       end
 
+      # TODO check redis.del was not called
+
       it 'returns false' do
-        expect(subject.let_in?(param1, param2)).to eq(false)
+        expect(subject.let_in?()).to eq(false)
       end
     end
 
@@ -84,8 +145,9 @@ RSpec.describe Sidekiq::Bouncer do
       end
 
       it 'returns false' do
-        expect(subject.let_in?(param1, param2)).to eq(false)
+        expect(subject.let_in?()).to eq(false)
       end
     end
   end
+
 end

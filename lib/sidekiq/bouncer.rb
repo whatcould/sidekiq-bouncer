@@ -3,8 +3,9 @@ require 'sidekiq/bouncer/version'
 
 module Sidekiq
   class Bouncer
-    BUFFER = 1 # Second.
-    DEFAULT_DELAY = 60 # Seconds.
+
+    DELAY_BUFFER = 1          # Seconds
+    DELAY = 60                # Seconds
     ALLOWED_PARAM_CLASSES = [
       Integer, String, Symbol
     ].freeze
@@ -19,52 +20,87 @@ module Sidekiq
       end
     end
 
-    def initialize(klass, delay = DEFAULT_DELAY, condition_param_positions=nil)
+    attr_reader :klass
+    attr_accessor :delay, :delay_buffer, :only_params_at_index
+    
+    # @param [Class] klass worker class that responds to `perform_at`
+    # @param [Integer] delay seconds used for debouncer
+    # @param [Integer] delay_buffer used to prevent race conditions
+    # @param [Array<Integer>] only_params_at_index if present, only considers params at specified indices on #debounce and #let_in?
+    def initialize(klass, delay: DELAY, delay_buffer: DELAY_BUFFER, only_params_at_index: [])
+      raise TypeError.new('first argument must be a class') unless klass.is_a?(Class)# && klass.new.respond_to?(:perform_at)
+
       @klass = klass
       @delay = delay
-      @condition_param_positions = condition_param_positions
+      @delay_buffer = delay_buffer
+      @only_params_at_index = only_params_at_index
     end
-
+    
+    # Schedules a job to be executed with a specified delay + the delay_buffer, and
+    # sets a key to redis which will be used to debounce jobs with matching arguments
+    #
+    # @param [Array] params
+    # @return [Boolean] true if should be excecuted
     def debounce(*params)
-      # Refresh the timestamp in redis with debounce delay added.
-      redis_params = if @condition_param_positions
-        params.values_at(*@condition_param_positions)
-      else
-        params
-      end
-      self.class.config.redis.set(key(redis_params), now + @delay)
+      redis_params = validate_and_filter_params(params)
 
-      # Schedule the job with not only debounce delay added, but also BUFFER.
-      # BUFFER helps prevent race condition between this line and the one above.
-      @klass.perform_at(now + @delay + BUFFER, *params)
+      # Refresh the timestamp in redis with debounce delay added.
+      self.class.config.redis.set(redis_key(redis_params), now_i + @delay)
+
+      # Schedule the job with not only debounce delay added, but also DELAY_BUFFER.
+      # DELAY_BUFFER helps prevent race condition between this line and the one above.
+      @klass.perform_at(now_i + @delay + @delay_buffer, *params)
     end
 
-    def let_in?(*redis_params)
+    # Checks if job should be excecuted
+    #
+    # @param [Array] params
+    # @return [Boolean] true if should be excecuted
+    def let_in?(*params)
+      redis_params = validate_and_filter_params(params)
+
       # Only the last job should come after the timestamp.
+      timestamp = self.class.config.redis.get(redis_key(redis_params))
+      return false if now_i < timestamp.to_i
 
-      timestamp = self.class.config.redis.get(key(redis_params))
-      return false if Time.now.to_i < timestamp.to_i
-
-      # But because of BUFFER, there could be mulitple last jobs enqueued within
-      # the span of BUFFER. The first one will clear the timestamp, and the rest
+      # But because of DELAY_BUFFER, there could be mulitple last jobs enqueued within
+      # the span of DELAY_BUFFER. The first one will clear the timestamp, and the rest
       # will skip when they see that the timestamp is gone.
       return false if timestamp.nil?
-      self.class.config.redis.del(key(redis_params))
+      self.class.config.redis.del(redis_key(redis_params))
 
       true
     end
 
     private
-
-    def key(params)
-      redis_params = params.flatten.select do |e|
-        ALLOWED_PARAM_CLASSES.include?(e.class)
-      end
-      "#{@klass}:#{redis_params.join(',')}"
+    
+    # Validates all arguments are included in ALLOWED_PARAM_CLASSES and filters
+    # params based on @only_params_at_index if present
+    #
+    # @param [Array] params
+    # @return [Array] params (filtered if @only_params_at_index)
+    def validate_and_filter_params(params)
+      params = params.values_at(*@only_params_at_index).compact if @only_params_at_index && !@only_params_at_index.empty?
+      params.flatten.each{ |param|
+        raise TypeError.new(
+          "sidekiq debouncer only supports #{ALLOWED_PARAM_CLASSES.join(', ')}, got: '#{param.class}' as argument"
+        ) unless ALLOWED_PARAM_CLASSES.include?(param.class)
+      }
+      params
+    end
+    
+    # Builds a key based on arguments
+    #
+    # @param [Array] redis_params
+    # @return [String]
+    def redis_key(redis_params)
+      "#{@klass}:#{redis_params.flatten.join(',')}"
     end
 
-    def now
+    # @return [Integer] Time#now as integer
+    def now_i
       Time.now.to_i
     end
+
   end
 end
