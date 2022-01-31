@@ -49,18 +49,17 @@ Or install it yourself as:
 
 ```ruby
 # config/initializers/sidekiq_bouncer.rb
-Sidekiq::Bouncer.configure do |config|
+SidekiqBouncer.configure do |config|
   config.redis = Rails.application.redis
 end
 
 # app/workers/foo_worker.rb
 class FooWorker
   include Sidekiq::Worker
+  include SidekiqBouncer::Bounceable
 
-  def self.bouncer
-    # The default delay is 60 seconds. You can optionally override it.
-    @bouncer ||= Sidekiq::Bouncer.new(self, delay: optional_delay_override, delay_buffer: optional_delay_buffer_override)
-  end
+  # The default delay is 60 seconds. You can optionally override it.
+  register_bouncer(delay: optional_delay_override, delay_buffer: optional_delay_buffer_override)
 
   def perform(param1, param2)
     return unless self.class.bouncer.let_in?(param1, param2) #pass all args received from perform

@@ -1,7 +1,4 @@
-require 'sidekiq/bouncer/config'
-require 'sidekiq/bouncer/version'
-
-module Sidekiq
+module SidekiqBouncer
   class Bouncer
 
     DELAY_BUFFER = 1          # Seconds
@@ -9,16 +6,6 @@ module Sidekiq
     ALLOWED_PARAM_CLASSES = [
       Integer, String, Symbol
     ].freeze
-
-    class << self
-      def config
-        @config ||= Config.new
-      end
-
-      def configure(&block)
-        yield config
-      end
-    end
 
     attr_reader :klass
     attr_accessor :delay, :delay_buffer, :only_params_at_index
@@ -28,7 +15,9 @@ module Sidekiq
     # @param [Integer] delay_buffer used to prevent race conditions
     # @param [Array<Integer>] only_params_at_index if present, only considers params at specified indices on #debounce and #let_in?
     def initialize(klass, delay: DELAY, delay_buffer: DELAY_BUFFER, only_params_at_index: [])
-      raise TypeError.new('first argument must be a class') unless klass.is_a?(Class)# && klass.new.respond_to?(:perform_at)
+      unless klass.is_a?(Class)# && klass.new.respond_to?(:perform_at)
+        raise TypeError.new('first argument must be a class')
+      end
 
       @klass = klass
       @delay = delay
@@ -45,7 +34,7 @@ module Sidekiq
       redis_params = validate_and_filter_params(params)
 
       # Refresh the timestamp in redis with debounce delay added.
-      self.class.config.redis.set(redis_key(redis_params), now_i + @delay)
+      SidekiqBouncer.config.redis.set(redis_key(redis_params), now_i + @delay)
 
       # Schedule the job with not only debounce delay added, but also DELAY_BUFFER.
       # DELAY_BUFFER helps prevent race condition between this line and the one above.
@@ -60,14 +49,14 @@ module Sidekiq
       redis_params = validate_and_filter_params(params)
 
       # Only the last job should come after the timestamp.
-      timestamp = self.class.config.redis.get(redis_key(redis_params))
+      timestamp = SidekiqBouncer.config.redis.get(redis_key(redis_params))
       return false if now_i < timestamp.to_i
 
       # But because of DELAY_BUFFER, there could be mulitple last jobs enqueued within
       # the span of DELAY_BUFFER. The first one will clear the timestamp, and the rest
       # will skip when they see that the timestamp is gone.
       return false if timestamp.nil?
-      self.class.config.redis.del(redis_key(redis_params))
+      SidekiqBouncer.config.redis.del(redis_key(redis_params))
 
       true
     end
