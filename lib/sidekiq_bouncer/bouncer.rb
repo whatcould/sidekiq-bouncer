@@ -34,7 +34,7 @@ module SidekiqBouncer
       redis_params = validate_and_filter_params(params)
 
       # Refresh the timestamp in redis with debounce delay added.
-      SidekiqBouncer.config.redis.set(redis_key(redis_params), now_i + @delay)
+      redis.call('SET', redis_key(redis_params), now_i + @delay)
 
       # Schedule the job with not only debounce delay added, but also DELAY_BUFFER.
       # DELAY_BUFFER helps prevent race condition between this line and the one above.
@@ -49,16 +49,21 @@ module SidekiqBouncer
       redis_params = validate_and_filter_params(params)
 
       # Only the last job should come after the timestamp.
-      timestamp = SidekiqBouncer.config.redis.get(redis_key(redis_params))
+      timestamp = redis.call('GET', redis_key(redis_params))
       return false if now_i < timestamp.to_i
 
       # But because of DELAY_BUFFER, there could be mulitple last jobs enqueued within
       # the span of DELAY_BUFFER. The first one will clear the timestamp, and the rest
       # will skip when they see that the timestamp is gone.
       return false if timestamp.nil?
-      SidekiqBouncer.config.redis.del(redis_key(redis_params))
+      redis.call('DEL', redis_key(redis_params))
 
       true
+    end
+
+    # @return [RedisClient::Pooled]
+    def redis
+      SidekiqBouncer.config.redis
     end
 
     private
