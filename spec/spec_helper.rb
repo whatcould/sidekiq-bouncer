@@ -1,6 +1,6 @@
 require "bundler/setup"
 require "sidekiq_bouncer"
-require 'byebug'
+require 'debug'
 
 RSpec.configure do |config|
   config.filter_run_when_matching :focus
