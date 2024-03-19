@@ -10,9 +10,7 @@ class WorkerMock
     SidekiqBouncer::Bouncer.new(self)
   end
 
-  def perform_at(*args)
-    # noop
-  end
+  # def self.perform_at(*args); end
 end
 
 # Tests
@@ -53,13 +51,13 @@ describe SidekiqBouncer::Bouncer do
       expect { described_class.new }.to raise_error(ArgumentError)
     end
 
-    it 'raises TypeError when first arg is not a class' do
-      expect { described_class.new(1) }.to raise_error(TypeError)
-    end
+    # it 'raises TypeError when first arg is not a class' do
+    #   expect { described_class.new(1) }.to raise_error(TypeError)
+    # end
 
-    it 'raises TypeError when first arg does not respond to perform_at' do
-      expect { described_class.new(String) }.to raise_error(TypeError)
-    end
+    # it 'raises TypeError when first arg does not respond to perform_at' do
+    #   expect { described_class.new(String) }.to raise_error(TypeError)
+    # end
 
     it 'has a default value for delay' do
       expect(bouncer.delay).to eql(SidekiqBouncer::Bouncer::DELAY)

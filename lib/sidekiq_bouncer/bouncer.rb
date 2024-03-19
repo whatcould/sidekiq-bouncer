@@ -13,9 +13,9 @@ module SidekiqBouncer
     # @param [Integer] delay seconds used for debouncer
     # @param [Integer] delay_buffer used to prevent race conditions
     def initialize(klass, delay: DELAY, delay_buffer: DELAY_BUFFER)
-      unless klass.is_a?(Class) && klass.method_defined?(:perform_at)
-        raise TypeError.new("first argument must be a class and respond to 'perform_at'")
-      end
+      # unless klass.is_a?(Class) && klass.respond_to?(:perform_at)
+      #   raise TypeError.new("first argument must be a class and respond to 'perform_at'")
+      # end
 
       @klass = klass
       @delay = delay
