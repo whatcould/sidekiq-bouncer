@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 # Mock
 module RedisMock
 end
@@ -7,12 +9,18 @@ class WorkerMock
   def self.bouncer
     SidekiqBouncer::Bouncer.new(self)
   end
+
+  def perform_at(*args)
+    # noop
+  end
 end
 
 # Tests
 describe SidekiqBouncer::Bouncer do
+  # careful, the bouncer instance is generally cached on the worker model
+  subject(:bouncer) { WorkerMock.bouncer }
 
-  before(:all) do
+  before :all do
     SidekiqBouncer.configure do |config|
       config.redis = RedisMock
     end
@@ -24,130 +32,169 @@ describe SidekiqBouncer::Bouncer do
 
   before do
     # stubbing
-    allow(subject).to receive(:now_i){ now }
-    allow(redis).to receive(:set)
-    allow(redis).to receive(:get)
-    allow(redis).to receive(:del)
+    allow(bouncer).to receive(:now_i) { now }
+    allow(redis).to receive(:call)
     allow(worker_klass).to receive(:perform_at)
   end
 
-  # careful, the bouncer instance is generally cached on the worker model
-  subject { WorkerMock.bouncer }
+  describe 'public methods exist' do
+    it { expect(bouncer).to respond_to(:klass) }
+    it { expect(bouncer).to respond_to(:delay) }
+    it { expect(bouncer).to respond_to(:delay=) }
+    it { expect(bouncer).to respond_to(:delay_buffer) }
+    it { expect(bouncer).to respond_to(:delay_buffer=) }
+    it { expect(bouncer).to respond_to(:debounce) }
+    it { expect(bouncer).to respond_to(:let_in?) }
+    it { expect(bouncer).to respond_to(:redis) }
+  end
 
   describe '.new' do
-
-    it 'raises an error when no worker class is passed' do
-      expect { SidekiqBouncer::Bouncer.new() }.to raise_error(ArgumentError)
+    it 'raises ArgumentError when no worker class is passed' do
+      expect { described_class.new }.to raise_error(ArgumentError)
     end
 
-    it 'raises an error when first argument is not a worker class' do
-      expect { SidekiqBouncer::Bouncer.new(1) }.to raise_error(TypeError)
+    it 'raises TypeError when first arg is not a class' do
+      expect { described_class.new(1) }.to raise_error(TypeError)
+    end
+
+    it 'raises TypeError when first arg does not respond to perform_at' do
+      expect { described_class.new(String) }.to raise_error(TypeError)
+    end
+
+    it 'has a default value for delay' do
+      expect(bouncer.delay).to eql(SidekiqBouncer::Bouncer::DELAY)
     end
 
     it 'has a default value for delay and delay_buffer' do
-      expect(subject.delay).to eql(SidekiqBouncer::Bouncer::DELAY)
-      expect(subject.delay_buffer).to eql(SidekiqBouncer::Bouncer::DELAY_BUFFER)
-      expect(subject.only_params_at_index).to eql([])
+      expect(bouncer.delay_buffer).to eql(SidekiqBouncer::Bouncer::DELAY_BUFFER)
     end
 
-    it 'supports passing delay, delay_buffer and only_params_at_index params' do
-      bouncer = SidekiqBouncer::Bouncer.new(WorkerMock, delay: 10, delay_buffer: 2, only_params_at_index: [1])
-      expect(bouncer.delay).to eql(10)
-      expect(bouncer.delay_buffer).to eql(2)
-      expect(bouncer.only_params_at_index).to eql([1])
+    it 'supports passing delay' do
+      bouncer = described_class.new(WorkerMock, delay: 10, delay_buffer: 2)
+      expect(bouncer.delay).to be(10)
     end
 
+    it 'supports passing delay_buffer' do
+      bouncer = described_class.new(WorkerMock, delay: 10, delay_buffer: 2)
+      expect(bouncer.delay_buffer).to be(2)
+    end
   end
 
   describe '#debounce' do
-
-    it 'sets delayed timestamp to Redis and calls perform_at with additional delay_buffer' do
-      subject.debounce('test_param_1', 'test_param_2')
-
-      expect(SidekiqBouncer.config.redis)
-        .to have_received(:set)
-        .with("#{worker_klass}:test_param_1,test_param_2", now + subject.delay)
-
-      expect(worker_klass)
-        .to have_received(:perform_at)
-        .with(now + subject.delay + subject.delay_buffer, 'test_param_1', 'test_param_2')
-    end
-
-    it 'supports filtering params with @only_params_at_index' do
-      subject.only_params_at_index = [1]
-
-      subject.debounce('test_param_1', 'test_param_2')
+    it 'sets scoped_key to Redis with delayed timestamp' do
+      bouncer.debounce('test_param_1', 'test_param_2', key_or_args_indices: [0, 1])
 
       expect(SidekiqBouncer.config.redis)
-        .to have_received(:set)
-        .with("#{worker_klass}:test_param_2", now + subject.delay)
-
-      expect(worker_klass)
-        .to have_received(:perform_at)
-        .with(now + subject.delay + subject.delay_buffer, 'test_param_1', 'test_param_2')
+        .to have_received(:call)
+        .with('SET', 'WorkerMock:test_param_1,test_param_2', now + bouncer.delay)
     end
 
+    it 'Calls perform_at with delay and delay_buffer, passes parameters and scoped_key' do
+      bouncer.debounce('test_param_1', 'test_param_2', key_or_args_indices: [0, 1])
+      expect(worker_klass).to have_received(:perform_at).with(
+        now + bouncer.delay + bouncer.delay_buffer,
+        'test_param_1',
+        'test_param_2',
+        'WorkerMock:test_param_1,test_param_2'
+      )
+    end
+
+    context 'with filtered parameters by key_or_args_indices' do
+      it 'sets scoped_key to Redis with delayed timestamp' do
+        bouncer.debounce('test_param_1', 'test_param_2', key_or_args_indices: [0])
+
+        expect(SidekiqBouncer.config.redis)
+          .to have_received(:call)
+          .with('SET', 'WorkerMock:test_param_1', now + bouncer.delay)
+      end
+
+      it 'Calls perform_at with delay and delay_buffer, passes parameters and scoped_key' do
+        bouncer.debounce('test_param_1', 'test_param_2', key_or_args_indices: [0])
+        expect(worker_klass).to have_received(:perform_at).with(
+          now + bouncer.delay + bouncer.delay_buffer,
+          'test_param_1',
+          'test_param_2',
+          'WorkerMock:test_param_1'
+        )
+      end
+    end
   end
 
   describe '#let_in?' do
-
-    it 'Redis receives params for #get' do
-      subject.let_in?('test_param_1', 'test_param_2')
-
-      expect(SidekiqBouncer.config.redis)
-        .to have_received(:get)
-        .with("#{worker_klass}:test_param_1,test_param_2")
-    end
-
-    it 'supports filtering Redis params for #get', :focus do
-      subject.only_params_at_index = [1]
-      subject.let_in?('test_param_1', 'test_param_2')
-
-      expect(SidekiqBouncer.config.redis)
-        .to have_received(:get)
-        .with("#{worker_klass}:test_param_2")
-    end
-
-    context 'when debounce timestamp is in the past', :focus do
-      before do
-        allow(redis).to receive(:get).and_return(now - 10)
-        allow(redis).to receive(:del)
-      end
-
-      it 'Redis receives params for #get and #del' do
-        subject.let_in?('test_param_1', 'test_param_2')
-  
-        expect(SidekiqBouncer.config.redis)
-          .to have_received(:del)
-          .with("#{worker_klass}:test_param_1,test_param_2")
+    context 'when key is nil' do
+      it 'does not call redis' do
+        expect(SidekiqBouncer.config.redis).not_to have_received(:call)
       end
 
       it 'returns true' do
-        expect(subject.let_in?()).to eq(true)
+        expect(bouncer.let_in?(nil)).to be(true)
       end
     end
 
-    context 'when debounce timestamp is in the future' do
-      before do
-        allow(redis).to receive(:get).and_return(Time.now + 10)
+    context 'when key is not nil' do
+      let(:key) { 'WorkerMock:test_param_1,test_param_2' }
+
+      it 'exec call on redis with GET' do
+        bouncer.let_in?(key)
+
+        expect(SidekiqBouncer.config.redis)
+          .to have_received(:call)
+          .with('GET', key)
       end
 
-      # TODO check redis.del was not called
+      context 'when timestamp is in the past' do
+        before do
+          allow(redis).to receive(:call).with('GET', anything).and_return(now - 10)
+        end
 
-      it 'returns false' do
-        expect(subject.let_in?()).to eq(false)
+        it 'exec call on redis with DEL' do
+          bouncer.let_in?(key)
+
+          expect(SidekiqBouncer.config.redis)
+            .to have_received(:call)
+            .with('DEL', key)
+        end
+
+        it 'returns true' do
+          expect(bouncer.let_in?(key)).to be(true)
+        end
       end
-    end
 
-    context 'when debounce timestamp is not there' do
-      before do
-        allow(redis).to receive(:get).and_return(nil)
+      context 'when timestamp is in the future' do
+        before do
+          allow(redis).to receive(:call).with('GET', anything).and_return(Time.now + 10)
+        end
+
+        it 'does not exec call on redis with DEL' do
+          bouncer.let_in?(key)
+
+          expect(SidekiqBouncer.config.redis)
+            .not_to have_received(:call)
+            .with('DEL', anything)
+        end
+
+        it 'returns false' do
+          expect(bouncer.let_in?(key)).to be(false)
+        end
       end
 
-      it 'returns false' do
-        expect(subject.let_in?()).to eq(false)
+      context 'when debounce timestamp is nil' do
+        before do
+          allow(redis).to receive(:call).with('GET', anything).and_return(nil)
+        end
+
+        it 'does not exec call on redis with DEL' do
+          bouncer.let_in?(key)
+
+          expect(SidekiqBouncer.config.redis)
+            .not_to have_received(:call)
+            .with('DEL', anything)
+        end
+
+        it 'returns false' do
+          expect(bouncer.let_in?(key)).to be(false)
+        end
       end
     end
   end
-
 end

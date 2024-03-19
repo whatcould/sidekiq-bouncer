@@ -61,15 +61,15 @@ class FooWorker
   # The default delay is 60 seconds. You can optionally override it.
   register_bouncer(delay: optional_delay_override, delay_buffer: optional_delay_buffer_override)
 
-  def perform(param1, param2)
-    return unless self.class.bouncer.let_in?(param1, param2) #pass all args received from perform
+  def perform(param1, param2, debounce_key = nil)
+    return unless self.class.bouncer.let_in?(debounce_key) # last argument is added as debounce_key
 
     # Do your thing.
   end
 end
 
 # Call `.bouncer.debounce(...)` instead of `.perform_in/perform_async(...)`.
-FooWorker.bouncer.debounce(param1, param2)
+FooWorker.bouncer.debounce(param1, param2, key_or_args_indices: [0, 1])
 ```
 
 ## Development

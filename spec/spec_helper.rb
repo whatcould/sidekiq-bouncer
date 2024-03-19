@@ -1,5 +1,7 @@
-require "bundler/setup"
-require "sidekiq_bouncer"
+# frozen_string_literal: true
+
+require 'bundler/setup'
+require 'sidekiq_bouncer'
 require 'debug'
 
 RSpec.configure do |config|
