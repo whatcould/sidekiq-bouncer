@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'sidekiq_bouncer/config'
 require 'sidekiq_bouncer/version'
 require 'sidekiq_bouncer/bounceable'
@@ -13,7 +15,7 @@ module SidekiqBouncer
     end
 
     # Yield self to allow configuing in a block
-    def configure(&block)
+    def configure(&)
       yield config
     end
   end
