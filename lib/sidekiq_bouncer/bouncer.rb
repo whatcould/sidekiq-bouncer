@@ -57,11 +57,14 @@ module SidekiqBouncer
     # @param [NilClass|String] key
     # @return [False|*] true if should be excecuted
     def run(key)
-      return false unless let_in?(key)
+      timestamp = nil
+      return false unless let_in?(key) { |t| timestamp = t }
 
-      yield.tap do
-        redis.call('DEL', key)
-      end
+      redis.call('DEL', key)
+      yield
+    rescue StandardError => e
+      redis.call('SET', key, timestamp)
+      raise e
     end
 
     # @param [NilClass|String] key
@@ -75,7 +78,10 @@ module SidekiqBouncer
       # the span of DELAY_BUFFER. The first one will clear the timestamp, and the rest
       # will skip when they see that the timestamp is gone.
       timestamp = redis.call('GET', key)
-      return false if timestamp.nil? || now_i < timestamp.to_i
+      return false if timestamp.nil?
+
+      yield timestamp if block_given?
+      return false if now_i < timestamp.to_i
 
       true
     end
