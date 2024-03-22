@@ -55,6 +55,16 @@ module SidekiqBouncer
     # Checks if job should be excecuted
     #
     # @param [NilClass|String] key
+    # @return [False|*] true if should be excecuted
+    def run(key)
+      return false unless let_in?(key)
+
+      yield.tap do
+        redis.call('DEL', key)
+      end
+    end
+
+    # @param [NilClass|String] key
     # @return [Boolean] true if should be excecuted
     def let_in?(key)
       # handle non-debounced jobs and already scheduled jobs when debouncer is added for the first time
@@ -67,17 +77,15 @@ module SidekiqBouncer
       timestamp = redis.call('GET', key)
       return false if timestamp.nil? || now_i < timestamp.to_i
 
-      redis.call('DEL', key)
-
       true
     end
+
+    private
 
     # @return [RedisClient::Pooled]
     def redis
       SidekiqBouncer.config.redis
     end
-
-    private
 
     # Builds a key based on arguments
     #

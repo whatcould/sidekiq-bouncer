@@ -1,7 +1,9 @@
 # frozen_string_literal: true
 
+$LOAD_PATH.unshift File.expand_path('../lib', __dir__)
 require 'bundler/setup'
 require 'sidekiq_bouncer'
+require 'timecop'
 require 'debug'
 
 RSpec.configure do |config|

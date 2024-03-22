@@ -4,23 +4,26 @@ module SidekiqBouncer
   module Bounceable
 
     def self.included(base)
-      base.include InstanceMethods
+      base.prepend InstanceMethods
       base.extend ClassMethods
     end
 
     module ClassMethods
-      # creates and sets a +SidekiqBouncer::Bouncer+
-      def register_bouncer(**kwargs)
-        @bouncer = SidekiqBouncer::Bouncer.new(self, **kwargs)
-      end
-
       # @retrun [SidekiqBouncer::Bouncer]
-      def bouncer
-        @bouncer
+      attr_reader :bouncer
+
+      # creates and sets a +SidekiqBouncer::Bouncer+
+      def register_bouncer(**)
+        @bouncer = SidekiqBouncer::Bouncer.new(self, **)
       end
     end
 
     module InstanceMethods
+      def perform(*, debounce_key, **)
+        self.class.bouncer.run(debounce_key) do
+          super(*, **)
+        end
+      end
     end
 
   end
