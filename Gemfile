@@ -9,6 +9,7 @@ gemspec
 gem 'debug', '>= 1.0.0'
 gem 'rake', '~> 13.1'
 gem 'rspec', '~> 3.9'
+gem 'timecop'
 
 # rubocop
 gem 'rubocop', '~> 1.62'
