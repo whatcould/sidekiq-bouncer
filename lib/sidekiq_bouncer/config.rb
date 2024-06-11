@@ -2,6 +2,6 @@
 
 module SidekiqBouncer
   class Config
-    attr_accessor :redis
+    attr_accessor :redis_client # Proc or RedisClient from redis-client gem
   end
 end

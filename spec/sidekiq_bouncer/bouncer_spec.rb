@@ -16,19 +16,19 @@ describe SidekiqBouncer::Bouncer do
   # careful, the bouncer instance is generally cached on the worker model
   subject(:bouncer) { WorkerMock.bouncer }
 
-  let(:redis) { SidekiqBouncer.config.redis }
+  let(:redis_client) { SidekiqBouncer.config.redis_client }
   let(:worker_klass) { WorkerMock }
   let(:now) { Time.now.to_i }
 
   before do
     SidekiqBouncer.configure do |config|
-      config.redis = RedisMock.new
+      config.redis_client = RedisMock.new
     end
 
     Timecop.freeze(Time.now)
 
     # stubbing
-    allow(redis).to receive(:call)
+    allow(redis_client).to receive(:call)
     allow(worker_klass).to receive(:perform_at)
   end
 
@@ -78,7 +78,7 @@ describe SidekiqBouncer::Bouncer do
     it 'sets scoped_key to Redis with delayed timestamp' do
       bouncer.debounce('test_param_1', 'test_param_2', key_or_args_indices: [0, 1])
 
-      expect(redis)
+      expect(redis_client)
         .to have_received(:call)
         .with('SET', 'WorkerMock:test_param_1,test_param_2', now + bouncer.delay)
     end
@@ -97,7 +97,7 @@ describe SidekiqBouncer::Bouncer do
       it 'sets scoped_key to Redis with delayed timestamp' do
         bouncer.debounce('test_param_1', 'test_param_2', key_or_args_indices: [0])
 
-        expect(redis)
+        expect(redis_client)
           .to have_received(:call)
           .with('SET', 'WorkerMock:test_param_1', now + bouncer.delay)
       end
@@ -116,8 +116,8 @@ describe SidekiqBouncer::Bouncer do
 
   describe '#let_in?' do
     context 'when key is nil' do
-      it 'does not call redis' do
-        expect(redis).not_to have_received(:call)
+      it 'does not call Redis' do
+        expect(redis_client).not_to have_received(:call)
       end
 
       it 'returns true' do
@@ -128,17 +128,17 @@ describe SidekiqBouncer::Bouncer do
     context 'when key is not nil' do
       let(:key) { 'WorkerMock:test_param_1,test_param_2' }
 
-      it 'exec call on redis with GET' do
+      it 'exec call on Redis with GET' do
         bouncer.let_in?(key)
 
-        expect(redis)
+        expect(redis_client)
           .to have_received(:call)
           .with('GET', key)
       end
 
       context 'when timestamp is in the past' do
         before do
-          allow(redis).to receive(:call).with('GET', anything).and_return(now - 10)
+          allow(redis_client).to receive(:call).with('GET', anything).and_return(now - 10)
         end
 
         it 'returns true' do
@@ -148,7 +148,7 @@ describe SidekiqBouncer::Bouncer do
 
       context 'when timestamp is in the future' do
         before do
-          allow(redis).to receive(:call).with('GET', anything).and_return(Time.now + 10)
+          allow(redis_client).to receive(:call).with('GET', anything).and_return(Time.now + 10)
         end
 
         it 'returns false' do
@@ -158,7 +158,7 @@ describe SidekiqBouncer::Bouncer do
 
       context 'when debounce timestamp is nil' do
         before do
-          allow(redis).to receive(:call).with('GET', anything).and_return(nil)
+          allow(redis_client).to receive(:call).with('GET', anything).and_return(nil)
         end
 
         it 'returns false' do
@@ -184,10 +184,10 @@ describe SidekiqBouncer::Bouncer do
         expect { |b| bouncer.run('do_not', &b) }.not_to yield_control
       end
 
-      it 'does not exec call on redis with DEL' do
+      it 'does not exec call on Redis with DEL' do
         bouncer.run('do_not') { '__test__' }
 
-        expect(redis)
+        expect(redis_client)
           .not_to have_received(:call)
           .with('DEL', anything)
       end
@@ -202,10 +202,10 @@ describe SidekiqBouncer::Bouncer do
         expect { |b| bouncer.run('do', &b) }.to yield_control
       end
 
-      it 'exec call on redis with DEL' do
+      it 'exec call on Redis with DEL' do
         bouncer.run('do') { '__test__' }
 
-        expect(redis)
+        expect(redis_client)
           .to have_received(:call)
           .with('DEL', 'do')
       end

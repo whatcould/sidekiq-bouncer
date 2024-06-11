@@ -90,7 +90,7 @@ module SidekiqBouncer
 
     # @return [RedisClient::Pooled]
     def redis
-      SidekiqBouncer.config.redis
+      SidekiqBouncer.config.redis_client
     end
 
     # Builds a key based on arguments
