@@ -60,10 +60,10 @@ module SidekiqBouncer
       timestamp = nil
       return false unless let_in?(key) { |t| timestamp = t }
 
-      redis.call('DEL', key)
+      redis.call('DEL', key) unless key.nil?
       yield
     rescue StandardError => e
-      redis.call('SET', key, timestamp)
+      redis.call('SET', key, timestamp) unless key.nil?
       raise e
     end
 
