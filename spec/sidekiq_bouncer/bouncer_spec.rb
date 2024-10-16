@@ -16,13 +16,14 @@ describe SidekiqBouncer::Bouncer do
   # careful, the bouncer instance is generally cached on the worker model
   subject(:bouncer) { WorkerMock.bouncer }
 
-  let(:redis_client) { SidekiqBouncer.config.redis_client }
+  let(:redis_pool) { SidekiqBouncer.config.redis_pool }
+  let(:redis_client) { RedisMock.new }
   let(:worker_klass) { WorkerMock }
   let(:now) { Time.now.to_i }
 
   before do
     SidekiqBouncer.configure do |config|
-      config.redis_client = RedisMock.new
+      config.redis_pool = ConnectionPool.new(size: 1, timeout: 5) { redis_client }
     end
 
     Timecop.freeze(Time.now)
@@ -218,9 +219,9 @@ describe SidekiqBouncer::Bouncer do
     end
   end
 
-  describe '#redis' do
+  describe '#redis_pool' do
     it 'returns' do
-      expect(bouncer.send(:redis)).to be_a(RedisMock)
+      expect(bouncer.send(:redis_pool)).to be_a(ConnectionPool)
     end
   end
 

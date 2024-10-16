@@ -28,7 +28,7 @@ module SidekiqBouncer
     # @param [*] params
     # @param [Array<Integer>|#to_s] key_or_args_indices
     # @return [Boolean] true if should be excecuted
-    def debounce(*params, key_or_args_indices:)
+    def debounce(*params, key_or_args_indices:) # rubocop:disable Metrics/MethodLength
       raise TypeError.new('key_or_args_indices cannot be nil') if key_or_args_indices.nil?
 
       key = case key_or_args_indices
@@ -41,7 +41,9 @@ module SidekiqBouncer
       key = redis_key(key)
 
       # Add/Update the timestamp in redis with debounce delay added.
-      redis.call('SET', key, now_i + @delay)
+      redis_pool.with do |redis|
+        redis.call('SET', key, now_i + @delay)
+      end
 
       # Schedule the job with not only debounce delay added, but also DELAY_BUFFER.
       # DELAY_BUFFER helps prevent race condition between this line and the one above.
@@ -60,10 +62,14 @@ module SidekiqBouncer
       timestamp = nil
       return false unless let_in?(key) { |t| timestamp = t }
 
-      redis.call('DEL', key) unless key.nil?
+      redis_pool.with do |redis|
+        redis.call('DEL', key) unless key.nil?
+      end
       yield
     rescue StandardError => e
-      redis.call('SET', key, timestamp) unless key.nil?
+      redis_pool.with do |redis|
+        redis.call('SET', key, timestamp) unless key.nil?
+      end
       raise e
     end
 
@@ -77,7 +83,9 @@ module SidekiqBouncer
       # Due to the DELAY_BUFFER, there could be mulitple jobs enqueued within
       # the span of DELAY_BUFFER. The first one will clear the timestamp, and the rest
       # will skip when they see that the timestamp is gone.
-      timestamp = redis.call('GET', key)
+      timestamp = redis_pool.with do |redis|
+        redis.call('GET', key)
+      end
       return false if timestamp.nil?
 
       yield timestamp if block_given?
@@ -89,8 +97,8 @@ module SidekiqBouncer
     private
 
     # @return [RedisClient::Pooled]
-    def redis
-      SidekiqBouncer.config.redis_client
+    def redis_pool
+      SidekiqBouncer.config.redis_pool
     end
 
     # Builds a key based on arguments

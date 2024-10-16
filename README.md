@@ -50,7 +50,7 @@ Or install it yourself as:
 ```ruby
 # config/initializers/sidekiq_bouncer.rb
 SidekiqBouncer.configure do |config|
-  config.redis = Rails.application.redis
+  config.redis_pool = Sidekiq.redis_pool
 end
 
 # app/workers/foo_worker.rb

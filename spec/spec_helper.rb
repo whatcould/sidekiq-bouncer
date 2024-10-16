@@ -5,6 +5,7 @@ require 'bundler/setup'
 require 'sidekiq_bouncer'
 require 'timecop'
 require 'debug'
+require 'connection_pool'
 
 RSpec.configure do |config|
   config.filter_run_when_matching :focus

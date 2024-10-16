@@ -11,6 +11,8 @@ gem 'rake', '~> 13.1'
 gem 'rspec', '~> 3.9'
 gem 'timecop'
 
+gem 'connection_pool'
+
 # rubocop
 gem 'rubocop', '~> 1.62'
 gem 'rubocop-performance', '~> 1.20'
